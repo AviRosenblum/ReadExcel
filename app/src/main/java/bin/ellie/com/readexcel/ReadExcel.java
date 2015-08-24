@@ -1,20 +1,15 @@
 package bin.ellie.com.readexcel;
 
+import android.app.Activity;
 import android.app.ProgressDialog;
-import android.content.Context;
 import android.os.AsyncTask;
 import android.os.Environment;
 import android.util.Log;
+import android.widget.Toast;
 
 import org.apache.http.HttpResponse;
-import org.apache.http.HttpStatus;
-import org.apache.http.StatusLine;
-import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.HttpClient;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.conn.params.ConnManagerParams;
 import org.apache.http.impl.client.DefaultHttpClient;
-import org.apache.http.params.HttpConnectionParams;
 import org.apache.http.params.HttpParams;
 import org.apache.poi.hssf.usermodel.HSSFCell;
 import org.apache.poi.hssf.usermodel.HSSFRow;
@@ -26,12 +21,15 @@ import org.apache.poi.ss.usermodel.Row;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.IOException;
 import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.Iterator;
 
+import javax.net.ssl.HttpsURLConnection;
 
-/** This class is using to parse Excel file from server into a local variable using jExcel jar.
+
+/** This class is using to parse Excel file from server into a local variable using Apache POI.
     Parameters are Context for display dialog during parse,
     and URL of server for execute AsyncTask.
 
@@ -39,20 +37,21 @@ import java.util.Iterator;
  **/
 
 
-public class ReadExcel extends AsyncTask<String, Void, String> {
+public class ReadExcel extends AsyncTask<String, Void, Boolean> {
 
     private static final int REGISTRATION_TIMEOUT = 3 * 1000;
     private static final int WAIT_TIMEOUT = 30 * 1000;
-    private final HttpClient httpclient;
-    final HttpParams params;
+    private final HttpClient httpclient = new DefaultHttpClient();
+    final HttpParams params = httpclient.getParams();
     private HttpResponse response;
-    private String content = null;
+    private Boolean result = false;
     private File xlFile;
     private ProgressDialog dialog;
-    private Context context;
+    private Activity mActivity;
 
-    public ReadExcel(Context context) {
-        this.context = context;
+    // Constructor to getting the activity calling to this class to display dialog while downloading file.
+    public ReadExcel(Activity activity) {
+        this.mActivity = activity;
     }
 
     @Override
@@ -60,7 +59,7 @@ public class ReadExcel extends AsyncTask<String, Void, String> {
         super.onPreExecute();
 
         // display dialog while loading data
-        dialog = new ProgressDialog(context);
+        dialog = new ProgressDialog(mActivity);
         dialog.setMessage("Loading, Please wait");
         dialog.setCancelable(false);
         dialog.setCanceledOnTouchOutside(false);
@@ -69,72 +68,48 @@ public class ReadExcel extends AsyncTask<String, Void, String> {
     }
 
     @Override
-    protected String doInBackground(String... urls) {
-        
-        /**
-         * (08/23/15) Note: Since Andorid 5.1 HttpClient is deprecated. Soon, I'll publish new version 
-         *                  of this code to request GET from server using URLConnection.
-         */
-        
-        String URL = null;
+    protected Boolean doInBackground(String... urls) {
+        URL url;
         try {
-            // get server url from params
-            URL = urls[0];
-            // establish connection to server
-            httpclient = new DefaultHttpClient();
-            params = httpclient.getParams();
-            HttpConnectionParams.setConnectionTimeout(params, REGISTRATION_TIMEOUT);
-            HttpConnectionParams.setSoTimeout(params, WAIT_TIMEOUT);
-            ConnManagerParams.setTimeout(params, WAIT_TIMEOUT);
-            HttpGet httpGet = new HttpGet(URL);
-            response = httpclient.execute(httpGet);
-            StatusLine statusLine = response.getStatusLine();
-            if (statusLine.getStatusCode() == HttpStatus.SC_OK) {
+            url = new URL(urls[0]);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setReadTimeout(WAIT_TIMEOUT);
+            conn.setConnectTimeout(REGISTRATION_TIMEOUT);
+            conn.setRequestMethod("GET");
+            conn.setDoInput(true);
+
+            int responseCode = conn.getResponseCode();
+            if (responseCode == HttpsURLConnection.HTTP_OK) {
                 // get content of Excel file to inputStream
-                InputStream is = response.getEntity().getContent();
+                InputStream is = conn.getInputStream();
                 // create new file
                 xlFile = new File
                         (Environment.getExternalStorageDirectory(), "books.xls");
                 FileOutputStream fos = new FileOutputStream(xlFile);
                 int read = 0;
                 byte[] buffer = new byte[1024];
-                // write content from inputStream into the file
+                // write content from inputStream to file
                 while ((read = is.read(buffer)) > 0) {
                     fos.write(buffer, 0, read);
                 }
                 // close file outputStream
-                if (fos != null) {
-                    fos.close();
-                    // close inputStream
-                    if (is != null) {
-                        is.close();
-                    }
-                }
+                fos.close();
+                // close inputStream
+                is.close();
                 // clear singleton before loading data
                 BooksList.getInstance().getmBooks().clear();
                 // parse Excel from file into local singleton
                 parseExcel(new FileInputStream(xlFile.getAbsolutePath()));
-                // close connection to server
-                response.getEntity().getContent().close();
+                // No Exceptions, result is true.
+                result = true;
             } else {
-                Log.w("HTTP1:", statusLine.getReasonPhrase());
-                response.getEntity().getContent().close();
-                throw new IOException(statusLine.getReasonPhrase());
+                Log.d("Connection-Exception:", String.valueOf(conn.getResponseCode()) + conn.getResponseMessage());
+                result = false;
             }
-        } catch (ClientProtocolException e) {
-            Log.w("HTTP2:", e);
-            content = e.getMessage();
-            cancel(true);
-        } catch (IOException e) {
-            Log.w("HTTP3:", e);
-            content = e.getMessage();
-            cancel(true);
         } catch (Exception e) {
-            Log.w("HTTP4:", e);
-            content = e.getMessage();
-            cancel(true);
+            e.printStackTrace();
         }
-        return content;
+        return result;
     }
 
 
@@ -205,9 +180,12 @@ public class ReadExcel extends AsyncTask<String, Void, String> {
     }
 
     @Override
-    protected void onPostExecute(String s) {
-        super.onPostExecute(s);
+    protected void onPostExecute(Boolean b) {
+        super.onPostExecute(b);
         // dismiss dialog
+        if (b) {
+            Toast.makeText(mActivity, "All Done Successfully", Toast.LENGTH_SHORT).show();
+        }
         dialog.dismiss();
     }
 
