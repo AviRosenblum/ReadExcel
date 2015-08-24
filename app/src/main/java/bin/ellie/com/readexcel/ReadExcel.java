@@ -43,8 +43,8 @@ public class ReadExcel extends AsyncTask<String, Void, String> {
 
     private static final int REGISTRATION_TIMEOUT = 3 * 1000;
     private static final int WAIT_TIMEOUT = 30 * 1000;
-    private final HttpClient httpclient = new DefaultHttpClient();
-    final HttpParams params = httpclient.getParams();
+    private final HttpClient httpclient;
+    final HttpParams params;
     private HttpResponse response;
     private String content = null;
     private File xlFile;
@@ -70,11 +70,19 @@ public class ReadExcel extends AsyncTask<String, Void, String> {
 
     @Override
     protected String doInBackground(String... urls) {
+        
+        /**
+         * (08/23/15) Note: Since Andorid 5.1 HttpClient is deprecated. Soon, I'll publish new version 
+         *                  of this code to request GET from server using URLConnection.
+         */
+        
         String URL = null;
         try {
             // get server url from params
             URL = urls[0];
             // establish connection to server
+            httpclient = new DefaultHttpClient();
+            params = httpclient.getParams();
             HttpConnectionParams.setConnectionTimeout(params, REGISTRATION_TIMEOUT);
             HttpConnectionParams.setSoTimeout(params, WAIT_TIMEOUT);
             ConnManagerParams.setTimeout(params, WAIT_TIMEOUT);
